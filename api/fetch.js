@@ -1,5 +1,7 @@
 const chromium = require("@sparticuz/chromium");
-const puppeteer = require("puppeteer-core");
+const puppeteer = require("puppeteer-extra");
+const StealthPlugin = require("puppeteer-extra-plugin-stealth");
+puppeteer.use(StealthPlugin());
 
 // Simple in-memory cookie cache (per cold-start instance)
 let cachedCookies = null;
@@ -46,11 +48,15 @@ module.exports = async function handler(req, res) {
 
   let browser = null;
   try {
+    chromium.setHeadlessMode = true;
+    chromium.setGraphicsMode = false;
+
     browser = await puppeteer.launch({
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
       executablePath: await chromium.executablePath(),
       headless: chromium.headless,
+      ignoreHTTPSErrors: true,
     });
 
     const page = await browser.newPage();
@@ -97,7 +103,6 @@ module.exports = async function handler(req, res) {
 
     // If we hit a CF challenge page, wait for it to resolve
     if (status === 403 || status === 503) {
-      // Wait for CF challenge to complete (typically 3-8 seconds)
       await page.waitForFunction(
         () => {
           return (
@@ -108,7 +113,6 @@ module.exports = async function handler(req, res) {
         },
         { timeout: 20000 }
       );
-      // Small extra wait for page to stabilize after challenge
       await new Promise((r) => setTimeout(r, 1500));
     }
 

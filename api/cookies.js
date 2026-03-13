@@ -1,5 +1,7 @@
 const chromium = require("@sparticuz/chromium");
-const puppeteer = require("puppeteer-core");
+const puppeteer = require("puppeteer-extra");
+const StealthPlugin = require("puppeteer-extra-plugin-stealth");
+puppeteer.use(StealthPlugin());
 
 // Cached CF cookies shared across warm invocations
 let cachedCookies = null;
@@ -28,11 +30,15 @@ module.exports = async function handler(req, res) {
 
   let browser = null;
   try {
+    chromium.setHeadlessMode = true;
+    chromium.setGraphicsMode = false;
+
     browser = await puppeteer.launch({
       args: chromium.args,
       defaultViewport: chromium.defaultViewport,
       executablePath: await chromium.executablePath(),
       headless: chromium.headless,
+      ignoreHTTPSErrors: true,
     });
 
     const page = await browser.newPage();

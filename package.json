@@ -1,9 +1,14 @@
 {
   "name": "faselhdx-proxy",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
+  "engines": {
+    "node": "18.x"
+  },
   "dependencies": {
-    "@sparticuz/chromium": "^131.0.0",
-    "puppeteer-core": "^23.0.0"
+    "@sparticuz/chromium": "^123.0.1",
+    "puppeteer-core": "^22.6.2",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
   }
 }
