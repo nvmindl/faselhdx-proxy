@@ -36,7 +36,7 @@ var ALLOWED_HOSTS = [
   "mp4plus.org", "www.mp4plus.org",
   "anafast.org", "www.anafast.org",
   "reviewrate.net", "m.reviewrate.net",
-  "vidtube.one", "www.vidtube.one",
+  "vidtube.one", "www.vidtube.one", "vidtube.cam", "www.vidtube.cam",
   "app.videas.fr", "videas.fr", "cdn.videas.fr", "cdn2.videas.fr",
   "1vid.xyz", "www.1vid.xyz",
 ];
@@ -382,6 +382,26 @@ app.get("/stream", function(req, res) {
 
 // Extract video sources from embed pages (JWPlayer, direct URLs)
 // Returns JSON array of {url, quality, type}
+
+// Unpack Dean Edwards p.a.c.k.e.r. obfuscated JS
+function unpackPacker(html) {
+  var match = html.match(/eval\(function\(p,a,c,k,e,d\)\{[^}]+\}\('([^']+)',\s*(\d+),\s*(\d+),\s*'([^']+)'\.split\('\|'\)/);
+  if (!match) return null;
+  var p = match[1], a = parseInt(match[2]), c = parseInt(match[3]), k = match[4].split("|");
+  function baseN(num, radix) {
+    var digits = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    if (num < radix) return digits[num];
+    return baseN(Math.floor(num / radix), radix) + digits[num % radix];
+  }
+  while (c--) {
+    if (k[c]) {
+      var token = baseN(c, a);
+      p = p.replace(new RegExp("\\b" + token + "\\b", "g"), k[c]);
+    }
+  }
+  return p;
+}
+
 app.get("/extract", function(req, res) {
   var url = req.query.url;
   if (!url) return res.status(400).json({ error: "url required" });
@@ -407,8 +427,12 @@ app.get("/extract", function(req, res) {
     var html = result.body;
     var sources = [];
 
+    // Try to unpack p.a.c.k.e.r. obfuscated JS first (vidtube.one etc)
+    var unpacked = unpackPacker(html);
+    var searchText = unpacked || html;
+
     // Extract JWPlayer sources: sources: [{file:"...",label:"..."}]
-    var jwMatch = html.match(/sources\s*:\s*\[([^\]]+)\]/);
+    var jwMatch = searchText.match(/sources\s*:\s*\[([^\]]+)\]/);
     if (jwMatch) {
       var srcBlock = jwMatch[1];
       var fileRe = /\{[^}]*file\s*:\s*"([^"]+)"[^}]*(?:label\s*:\s*"([^"]*)"|)[^}]*\}/gi;
@@ -421,16 +445,17 @@ app.get("/extract", function(req, res) {
       }
     }
 
-    // Fallback: scan for any m3u8/mp4 URLs
+    // Fallback: scan for any m3u8/mp4 URLs in both original and unpacked
     if (!sources.length) {
+      var scanText = unpacked ? unpacked + "\n" + html : html;
       var m3re = /https?:\/\/[^\s"'<>]+\.m3u8(?:\?[^\s"'<>]*)?/gi;
       var m3m;
-      while ((m3m = m3re.exec(html)) !== null) {
+      while ((m3m = m3re.exec(scanText)) !== null) {
         sources.push({ url: m3m[0], quality: "auto", type: "m3u8" });
       }
       var mp4re = /https?:\/\/[^\s"'<>]+\.mp4(?:\?[^\s"'<>]*)?/gi;
       var mp4m;
-      while ((mp4m = mp4re.exec(html)) !== null) {
+      while ((mp4m = mp4re.exec(scanText)) !== null) {
         var q = "auto";
         if (/1080/.test(mp4m[0])) q = "1080p";
         else if (/720/.test(mp4m[0])) q = "720p";
