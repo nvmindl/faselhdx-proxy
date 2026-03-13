@@ -108,7 +108,38 @@ function apiRequest(endpoint) {
 }
 
 app.get("/", function(req, res) {
-  res.json({ status: "ok", version: "5.2.0", api: "EasyPlex" });
+  res.json({ status: "ok", version: "5.3.0", api: "EasyPlex" });
+});
+
+// Diagnostic: fetch embed + m3u8 in single request to test IP consistency
+app.get("/test-stream", function(req, res) {
+  var embedUrl = req.query.url;
+  if (!embedUrl) return res.status(400).json({ error: "url required" });
+  var parsed;
+  try { parsed = new URL(embedUrl); } catch(e) { return res.status(400).json({ error: "invalid url" }); }
+  console.log("[test] embed: " + embedUrl.substring(0, 80));
+  httpsGet(parsed.hostname, parsed.pathname + parsed.search, { Referer: "https://flech.tn/" })
+    .then(function(embedResult) {
+      var match = embedResult.body.match(/file:"(https:\/\/[^"]+\.m3u8[^"]*)"/);
+      if (!match) return res.json({ step: "embed", error: "no m3u8 found in HTML", htmlLen: embedResult.body.length });
+      var m3u8Url = match[1];
+      console.log("[test] m3u8: " + m3u8Url.substring(0, 80));
+      var m3u8Parsed = new URL(m3u8Url);
+      var refDomain = m3u8Parsed.hostname.replace(/^(s\d+|cdn\d*|edge\d*|stream\d*)\./, "");
+      return httpsGet(m3u8Parsed.hostname, m3u8Parsed.pathname + m3u8Parsed.search, {
+        Referer: "https://" + refDomain + "/",
+        Origin: "https://" + refDomain,
+      }).then(function(m3u8Result) {
+        res.json({
+          m3u8_url: m3u8Url.substring(0, 120),
+          m3u8_status: m3u8Result.status,
+          m3u8_content_type: m3u8Result.headers["content-type"] || "",
+          m3u8_body_len: m3u8Result.body.length,
+          m3u8_starts_with: m3u8Result.body.substring(0, 100),
+        });
+      });
+    })
+    .catch(function(e) { res.json({ error: e.message }); });
 });
 
 var TMDB_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -334,6 +365,6 @@ app.get("/embed", function(req, res) {
 });
 
 var PORT = process.env.PORT || 3000;
-app.listen(PORT, function() { console.log("FaselHDX proxy v5.2.0 on port " + PORT); });
+app.listen(PORT, function() { console.log("FaselHDX proxy v5.3.0 on port " + PORT); });
 
 module.exports = app;
