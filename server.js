@@ -105,13 +105,96 @@ function apiRequest(endpoint) {
 }
 
 app.get("/", function(req, res) {
-  res.json({ status: "ok", version: "5.0.0", api: "EasyPlex" });
+  res.json({ status: "ok", version: "5.1.0", api: "EasyPlex" });
+});
+
+var TMDB_KEY = "439c478a771f35c05022f9feabcca01c";
+
+// Resolve TMDB ID to internal EasyPlex ID
+// GET /resolve/movie/550  or  /resolve/tv/1396
+app.get("/resolve/:type/:tmdbId", function(req, res) {
+  var type = req.params.type;
+  var tmdbId = req.params.tmdbId;
+  if (!/^\d+$/.test(tmdbId)) return res.status(400).json({ error: "invalid tmdb id" });
+
+  var tmdbPath = type === "tv"
+    ? "/3/tv/" + tmdbId + "?api_key=" + TMDB_KEY + "&language=en"
+    : "/3/movie/" + tmdbId + "?api_key=" + TMDB_KEY + "&language=en";
+
+  console.log("[resolve] " + type + " tmdb=" + tmdbId);
+
+  // Step 1: Get title from TMDB
+  httpsGet("api.themoviedb.org", tmdbPath).then(function(tmdbResult) {
+    if (tmdbResult.status !== 200) {
+      console.log("[resolve] TMDB returned " + tmdbResult.status);
+      return res.status(404).json({ error: "tmdb lookup failed" });
+    }
+    var tmdbData;
+    try { tmdbData = JSON.parse(tmdbResult.body); } catch(e) {
+      return res.status(502).json({ error: "tmdb parse error" });
+    }
+    var title = tmdbData.title || tmdbData.name || tmdbData.original_title || tmdbData.original_name || "";
+    if (!title) return res.status(404).json({ error: "no title from tmdb" });
+
+    console.log("[resolve] TMDB title: " + title);
+
+    // Step 2: Search EasyPlex by title
+    var searchPath = "search/" + encodeURIComponent(title) + "/0";
+    return apiRequest(searchPath).then(function(searchResult) {
+      var searchData;
+      try { searchData = JSON.parse(searchResult.body); } catch(e) {
+        return res.status(502).json({ error: "search parse error" });
+      }
+      var items = searchData.search || searchData.data || [];
+      if (Array.isArray(searchData)) items = searchData;
+
+      // Find match by tmdb_id
+      var match = null;
+      for (var i = 0; i < items.length; i++) {
+        if (String(items[i].tmdb_id) === String(tmdbId)) {
+          match = items[i];
+          break;
+        }
+      }
+      if (!match) {
+        console.log("[resolve] No match in " + items.length + " results for tmdb " + tmdbId);
+        // Try original_title too
+        var origTitle = tmdbData.original_title || tmdbData.original_name || "";
+        if (origTitle && origTitle !== title) {
+          console.log("[resolve] Retrying with original: " + origTitle);
+          var searchPath2 = "search/" + encodeURIComponent(origTitle) + "/0";
+          return apiRequest(searchPath2).then(function(sr2) {
+            var sd2;
+            try { sd2 = JSON.parse(sr2.body); } catch(e) { return res.status(404).json({ error: "not found" }); }
+            var items2 = sd2.search || sd2.data || [];
+            if (Array.isArray(sd2)) items2 = sd2;
+            for (var j = 0; j < items2.length; j++) {
+              if (String(items2[j].tmdb_id) === String(tmdbId)) {
+                match = items2[j];
+                break;
+              }
+            }
+            if (!match) return res.status(404).json({ error: "not found", searched: title });
+            console.log("[resolve] Found: internal=" + match.id + " title=" + match.title);
+            res.json({ id: match.id, tmdb_id: match.tmdb_id, title: match.title, type: type });
+          });
+        }
+        return res.status(404).json({ error: "not found", searched: title, results: items.length });
+      }
+
+      console.log("[resolve] Found: internal=" + match.id + " title=" + match.title);
+      res.json({ id: match.id, tmdb_id: match.tmdb_id, title: match.title, type: type });
+    });
+  }).catch(function(e) {
+    console.log("[resolve] error: " + e.message);
+    res.status(502).json({ error: e.message });
+  });
 });
 
 app.get("/api/*", function(req, res) {
   var endpoint = req.params[0];
   if (!endpoint) return res.status(400).json({ error: "no endpoint" });
-  if (!/^[\w\/\-\.%]+$/.test(endpoint)) {
+  if (!/^[\w\/\-\.%\+\s]+$/.test(endpoint)) {
     return res.status(400).json({ error: "invalid endpoint" });
   }
   console.log("[proxy] /api/" + endpoint);
