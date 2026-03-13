@@ -114,7 +114,7 @@ function apiRequest(endpoint) {
 }
 
 app.get("/", function(req, res) {
-  res.json({ status: "ok", version: "6.0.0", api: "EasyPlex" });
+  res.json({ status: "ok", version: "6.1.0", api: "EasyPlex" });
 });
 
 // Diagnostic: full chain test — embed → master m3u8 → variant m3u8 → first segment
@@ -385,9 +385,12 @@ app.get("/stream", function(req, res) {
 
 // Unpack Dean Edwards p.a.c.k.e.r. obfuscated JS
 function unpackPacker(html) {
-  var match = html.match(/eval\(function\(p,a,c,k,e,d\)\{[^}]+\}\('([^']+)',\s*(\d+),\s*(\d+),\s*'([^']+)'\.split\('\|'\)/);
+  // Match p.a.c.k.e.r: eval(function(p,a,c,k,e,d){...}('packed',base,count,'dict'.split('|')))
+  // The packed string may contain escaped quotes like \" so we use a greedy match up to ',\d+,\d+,'
+  var match = html.match(/eval\(function\(p,a,c,k,e,d\)\{[^}]+\}\('((?:[^\\']|\\.)*)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'([^']*)'\s*\.split\('\|'\)/);
   if (!match) return null;
-  var p = match[1], a = parseInt(match[2]), c = parseInt(match[3]), k = match[4].split("|");
+  var p = match[1].replace(/\\'/g, "'").replace(/\\"/g, '"');
+  var a = parseInt(match[2]), c = parseInt(match[3]), k = match[4].split("|");
   function baseN(num, radix) {
     var digits = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
     if (num < radix) return digits[num];
