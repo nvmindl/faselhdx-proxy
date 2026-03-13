@@ -12,6 +12,7 @@ app.use(function(req, res, next) {
 });
 
 var API_BASES = [
+  { host: "flech.tn", path: "/egybestantoo/public/api" },
   { host: "hrrejgh.com", path: "/wecima15/public/api" },
   { host: "www.hrrejhp.com", path: "/egybestanto/public/api" },
   { host: "fashd.com", path: "/faselhd15/public/api" },
@@ -27,6 +28,8 @@ var ALLOWED_HOSTS = [
   "mp4upload.com",
   "fasel-hd.cam", "www.fasel-hd.cam",
   "faselhd.cam", "www.faselhd.cam",
+  "faselhd.center", "www.faselhd.center",
+  "flech.tn",
 ];
 
 var UA = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36";
@@ -102,7 +105,7 @@ function apiRequest(endpoint) {
 }
 
 app.get("/", function(req, res) {
-  res.json({ status: "ok", version: "4.0.0", api: "EasyPlex" });
+  res.json({ status: "ok", version: "5.0.0", api: "EasyPlex" });
 });
 
 app.get("/api/*", function(req, res) {
@@ -149,4 +152,6 @@ app.get("/embed", function(req, res) {
 });
 
 var PORT = process.env.PORT || 3000;
-app.listen(PORT, function() { console.log("FaselHDX proxy v4.0.0 on port " + PORT); });
+app.listen(PORT, function() { console.log("FaselHDX proxy v5.0.0 on port " + PORT); });
+
+module.exports = app;
