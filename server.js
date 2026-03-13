@@ -30,6 +30,9 @@ var ALLOWED_HOSTS = [
   "faselhd.cam", "www.faselhd.cam",
   "faselhd.center", "www.faselhd.center",
   "flech.tn",
+  "egybestvid.com", "s1.egybestvid.com", "s2.egybestvid.com", "s3.egybestvid.com",
+  "vidoba.org", "www.vidoba.org",
+  "aflam.news", "v.aflam.news",
 ];
 
 var UA = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36";
