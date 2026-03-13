@@ -226,18 +226,20 @@ app.get("/stream", function(req, res) {
   }
   if (!allowed) return res.status(403).json({ error: "host not allowed: " + host });
 
-  var proxyBase = req.protocol + "://" + req.get("host");
+  var proxyBase = "https://" + req.get("host");
   var isM3u8 = /\.m3u8/i.test(parsed.pathname);
+
+  // Derive the base domain for Referer (strip CDN subdomains like s1., s2., etc.)
+  var refDomain = parsed.hostname.replace(/^(s\d+|cdn\d*|edge\d*|stream\d*)\./, "");
+  var refOrigin = "https://" + refDomain;
 
   console.log("[stream] " + (isM3u8 ? "m3u8" : "seg") + " " + url.substring(0, 100));
 
-  // Use buffer mode for proper binary handling
-  var reqHeaders = { Referer: parsed.origin + "/", Origin: parsed.origin };
   var reqOpts = {
     hostname: parsed.hostname, port: 443,
     path: parsed.pathname + parsed.search,
     method: "GET",
-    headers: { "User-Agent": UA, "Accept": "*/*", Referer: parsed.origin + "/", Origin: parsed.origin },
+    headers: { "User-Agent": UA, "Accept": "*/*", Referer: refOrigin + "/", Origin: refOrigin },
     timeout: 30000,
   };
 
