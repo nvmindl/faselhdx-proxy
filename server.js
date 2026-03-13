@@ -36,6 +36,9 @@ var ALLOWED_HOSTS = [
   "mp4plus.org", "www.mp4plus.org",
   "anafast.org", "www.anafast.org",
   "reviewrate.net", "m.reviewrate.net",
+  "vidtube.one", "www.vidtube.one",
+  "app.videas.fr", "videas.fr", "cdn.videas.fr", "cdn2.videas.fr",
+  "1vid.xyz", "www.1vid.xyz",
 ];
 
 var UA = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36";
