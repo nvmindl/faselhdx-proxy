@@ -111,7 +111,7 @@ app.get("/", function(req, res) {
   res.json({ status: "ok", version: "5.3.0", api: "EasyPlex" });
 });
 
-// Diagnostic: fetch embed + m3u8 in single request to test IP consistency
+// Diagnostic: full chain test — embed → master m3u8 → variant m3u8 → first segment
 app.get("/test-stream", function(req, res) {
   var embedUrl = req.query.url;
   if (!embedUrl) return res.status(400).json({ error: "url required" });
@@ -121,23 +121,59 @@ app.get("/test-stream", function(req, res) {
   httpsGet(parsed.hostname, parsed.pathname + parsed.search, { Referer: "https://flech.tn/" })
     .then(function(embedResult) {
       var match = embedResult.body.match(/file:"(https:\/\/[^"]+\.m3u8[^"]*)"/);
-      if (!match) return res.json({ step: "embed", error: "no m3u8 found in HTML", htmlLen: embedResult.body.length });
-      var m3u8Url = match[1];
-      console.log("[test] m3u8: " + m3u8Url.substring(0, 80));
-      var m3u8Parsed = new URL(m3u8Url);
-      var refDomain = m3u8Parsed.hostname.replace(/^(s\d+|cdn\d*|edge\d*|stream\d*)\./, "");
-      return httpsGet(m3u8Parsed.hostname, m3u8Parsed.pathname + m3u8Parsed.search, {
-        Referer: "https://" + refDomain + "/",
-        Origin: "https://" + refDomain,
-      }).then(function(m3u8Result) {
-        res.json({
-          m3u8_url: m3u8Url.substring(0, 120),
-          m3u8_status: m3u8Result.status,
-          m3u8_content_type: m3u8Result.headers["content-type"] || "",
-          m3u8_body_len: m3u8Result.body.length,
-          m3u8_starts_with: m3u8Result.body.substring(0, 100),
+      if (!match) return res.json({ step: "embed", error: "no m3u8 found", htmlLen: embedResult.body.length });
+      var masterUrl = match[1];
+      var masterParsed = new URL(masterUrl);
+      var refDomain = masterParsed.hostname.replace(/^(s\d+|cdn\d*|edge\d*|stream\d*)\./, "");
+      var refHeaders = { Referer: "https://" + refDomain + "/", Origin: "https://" + refDomain };
+      console.log("[test] master: " + masterUrl.substring(0, 80));
+
+      // Fetch master m3u8
+      return httpsGet(masterParsed.hostname, masterParsed.pathname + masterParsed.search, refHeaders)
+        .then(function(masterResult) {
+          if (masterResult.status !== 200) return res.json({ step: "master", error: "status " + masterResult.status });
+          var masterBody = masterResult.body;
+          // Find first variant URL
+          var lines = masterBody.split("\n");
+          var variantUrl = null;
+          var masterBase = masterUrl.substring(0, masterUrl.lastIndexOf("/") + 1);
+          for (var li = 0; li < lines.length; li++) {
+            var line = lines[li].trim();
+            if (line && line.charAt(0) !== "#") {
+              variantUrl = /^https?:\/\//i.test(line) ? line : masterBase + line;
+              break;
+            }
+          }
+          if (!variantUrl) return res.json({ step: "master", body: masterBody, error: "no variant url found" });
+
+          var varParsed = new URL(variantUrl);
+          console.log("[test] variant: " + variantUrl.substring(0, 80));
+
+          // Fetch variant m3u8
+          return httpsGet(varParsed.hostname, varParsed.pathname + varParsed.search, refHeaders)
+            .then(function(varResult) {
+              if (varResult.status !== 200) return res.json({ step: "variant", status: varResult.status, url: variantUrl });
+              var varBody = varResult.body;
+              // Find first .ts segment
+              var varLines = varBody.split("\n");
+              var segUrl = null;
+              var varBase = variantUrl.substring(0, variantUrl.lastIndexOf("/") + 1);
+              for (var vi = 0; vi < varLines.length; vi++) {
+                var vl = varLines[vi].trim();
+                if (vl && vl.charAt(0) !== "#") {
+                  segUrl = /^https?:\/\//i.test(vl) ? vl : varBase + vl;
+                  break;
+                }
+              }
+              res.json({
+                master_status: 200,
+                master_lines: lines.length,
+                variant_status: 200,
+                variant_lines: varLines.length,
+                first_segment: segUrl ? segUrl.substring(0, 120) : null,
+              });
+            });
         });
-      });
     })
     .catch(function(e) { res.json({ error: e.message }); });
 });
