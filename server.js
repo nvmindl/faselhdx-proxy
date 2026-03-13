@@ -33,6 +33,9 @@ var ALLOWED_HOSTS = [
   "egybestvid.com", "s1.egybestvid.com", "s2.egybestvid.com", "s3.egybestvid.com",
   "vidoba.org", "www.vidoba.org",
   "aflam.news", "v.aflam.news",
+  "mp4plus.org", "www.mp4plus.org",
+  "anafast.org", "www.anafast.org",
+  "reviewrate.net", "m.reviewrate.net",
 ];
 
 var UA = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36";
@@ -108,7 +111,7 @@ function apiRequest(endpoint) {
 }
 
 app.get("/", function(req, res) {
-  res.json({ status: "ok", version: "5.3.0", api: "EasyPlex" });
+  res.json({ status: "ok", version: "6.0.0", api: "EasyPlex" });
 });
 
 // Diagnostic: full chain test — embed → master m3u8 → variant m3u8 → first segment
@@ -374,6 +377,82 @@ app.get("/stream", function(req, res) {
   proxyReq.end();
 });
 
+// Extract video sources from embed pages (JWPlayer, direct URLs)
+// Returns JSON array of {url, quality, type}
+app.get("/extract", function(req, res) {
+  var url = req.query.url;
+  if (!url) return res.status(400).json({ error: "url required" });
+  var parsed;
+  try { parsed = new URL(url); } catch (e) { return res.status(400).json({ error: "invalid url" }); }
+
+  var host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+  var allowed = false;
+  for (var i = 0; i < ALLOWED_HOSTS.length; i++) {
+    if (host === ALLOWED_HOSTS[i] || host === "www." + ALLOWED_HOSTS[i]) { allowed = true; break; }
+  }
+  if (!allowed) return res.status(403).json({ error: "host not allowed: " + host });
+
+  console.log("[extract] " + url.substring(0, 100));
+
+  // Follow redirects (aflam.news → mp4plus.org)
+  httpsGet(parsed.hostname, parsed.pathname + parsed.search, {
+    Referer: parsed.origin + "/",
+  }, 5).then(function(result) {
+    if (result.status !== 200) {
+      return res.json({ sources: [], error: "status " + result.status });
+    }
+    var html = result.body;
+    var sources = [];
+
+    // Extract JWPlayer sources: sources: [{file:"...",label:"..."}]
+    var jwMatch = html.match(/sources\s*:\s*\[([^\]]+)\]/);
+    if (jwMatch) {
+      var srcBlock = jwMatch[1];
+      var fileRe = /\{[^}]*file\s*:\s*"([^"]+)"[^}]*(?:label\s*:\s*"([^"]*)"|)[^}]*\}/gi;
+      var fm;
+      while ((fm = fileRe.exec(srcBlock)) !== null) {
+        var fileUrl = fm[1];
+        var label = fm[2] || "auto";
+        var type = /\.m3u8/i.test(fileUrl) ? "m3u8" : "mp4";
+        sources.push({ url: fileUrl, quality: label, type: type });
+      }
+    }
+
+    // Fallback: scan for any m3u8/mp4 URLs
+    if (!sources.length) {
+      var m3re = /https?:\/\/[^\s"'<>]+\.m3u8(?:\?[^\s"'<>]*)?/gi;
+      var m3m;
+      while ((m3m = m3re.exec(html)) !== null) {
+        sources.push({ url: m3m[0], quality: "auto", type: "m3u8" });
+      }
+      var mp4re = /https?:\/\/[^\s"'<>]+\.mp4(?:\?[^\s"'<>]*)?/gi;
+      var mp4m;
+      while ((mp4m = mp4re.exec(html)) !== null) {
+        var q = "auto";
+        if (/1080/.test(mp4m[0])) q = "1080p";
+        else if (/720/.test(mp4m[0])) q = "720p";
+        else if (/480/.test(mp4m[0])) q = "480p";
+        else if (/360|320/.test(mp4m[0])) q = "360p";
+        sources.push({ url: mp4m[0], quality: q, type: "mp4" });
+      }
+    }
+
+    // Deduplicate
+    var seen = {};
+    sources = sources.filter(function(s) {
+      if (seen[s.url]) return false;
+      seen[s.url] = true;
+      return true;
+    });
+
+    console.log("[extract] Found " + sources.length + " sources");
+    res.json({ sources: sources });
+  }).catch(function(e) {
+    console.log("[extract] error: " + e.message);
+    res.status(502).json({ sources: [], error: e.message });
+  });
+});
+
 app.get("/embed", function(req, res) {
   var url = req.query.url;
   if (!url) return res.status(400).json({ error: "url required" });
@@ -401,6 +480,6 @@ app.get("/embed", function(req, res) {
 });
 
 var PORT = process.env.PORT || 3000;
-app.listen(PORT, function() { console.log("FaselHDX proxy v5.3.0 on port " + PORT); });
+app.listen(PORT, function() { console.log("FaselHDX proxy v6.0.0 on port " + PORT); });
 
 module.exports = app;
