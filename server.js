@@ -108,7 +108,7 @@ function apiRequest(endpoint) {
 }
 
 app.get("/", function(req, res) {
-  res.json({ status: "ok", version: "5.1.0", api: "EasyPlex" });
+  res.json({ status: "ok", version: "5.2.0", api: "EasyPlex" });
 });
 
 var TMDB_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -211,6 +211,100 @@ app.get("/api/*", function(req, res) {
   });
 });
 
+// Stream proxy — proxies HLS manifests (rewriting URLs) and media segments
+// This is needed because egybestvid/uqload m3u8 tokens are IP-locked to the server that fetched the embed page
+app.get("/stream", function(req, res) {
+  var url = req.query.url;
+  if (!url) return res.status(400).json({ error: "url required" });
+  var parsed;
+  try { parsed = new URL(url); } catch (e) { return res.status(400).json({ error: "invalid url" }); }
+
+  var host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+  var allowed = false;
+  for (var i = 0; i < ALLOWED_HOSTS.length; i++) {
+    if (host === ALLOWED_HOSTS[i] || host === "www." + ALLOWED_HOSTS[i]) { allowed = true; break; }
+  }
+  if (!allowed) return res.status(403).json({ error: "host not allowed: " + host });
+
+  var proxyBase = req.protocol + "://" + req.get("host");
+  var isM3u8 = /\.m3u8/i.test(parsed.pathname);
+
+  console.log("[stream] " + (isM3u8 ? "m3u8" : "seg") + " " + url.substring(0, 100));
+
+  // Use buffer mode for proper binary handling
+  var reqHeaders = { Referer: parsed.origin + "/", Origin: parsed.origin };
+  var reqOpts = {
+    hostname: parsed.hostname, port: 443,
+    path: parsed.pathname + parsed.search,
+    method: "GET",
+    headers: { "User-Agent": UA, "Accept": "*/*", Referer: parsed.origin + "/", Origin: parsed.origin },
+    timeout: 30000,
+  };
+
+  var proxyReq = https.request(reqOpts, function(upstreamRes) {
+    // Follow redirects
+    if ([301,302,303,307,308].indexOf(upstreamRes.statusCode) >= 0 && upstreamRes.headers.location) {
+      upstreamRes.resume();
+      var newUrl = upstreamRes.headers.location;
+      if (!/^https?:\/\//i.test(newUrl)) newUrl = "https://" + parsed.hostname + newUrl;
+      return res.redirect(307, proxyBase + "/stream?url=" + encodeURIComponent(newUrl));
+    }
+
+    if (upstreamRes.statusCode !== 200) {
+      upstreamRes.resume();
+      return res.status(upstreamRes.statusCode).json({ error: "upstream " + upstreamRes.statusCode });
+    }
+
+    var ct = upstreamRes.headers["content-type"] || "";
+
+    if (isM3u8 || ct.indexOf("mpegurl") >= 0) {
+      // M3U8 manifest — buffer, rewrite URLs, send
+      var data = "";
+      upstreamRes.setEncoding("utf8");
+      upstreamRes.on("data", function(chunk) { data += chunk; });
+      upstreamRes.on("end", function() {
+        var baseUrl = url.substring(0, url.lastIndexOf("/") + 1);
+        var lines = data.split("\n");
+        var out = [];
+        for (var li = 0; li < lines.length; li++) {
+          var line = lines[li];
+          var trimmed = line.trim();
+          if (!trimmed) { out.push(line); continue; }
+          // Rewrite URI="" in #EXT tags (encryption keys, maps)
+          if (trimmed.charAt(0) === "#") {
+            out.push(trimmed.replace(/URI="([^"]+)"/gi, function(match, uri) {
+              var absUri = /^https?:\/\//i.test(uri) ? uri : baseUrl + uri;
+              return 'URI="' + proxyBase + '/stream?url=' + encodeURIComponent(absUri) + '"';
+            }));
+            continue;
+          }
+          // URL line (segment, variant playlist)
+          if (/^https?:\/\//i.test(trimmed)) {
+            out.push(proxyBase + "/stream?url=" + encodeURIComponent(trimmed));
+          } else {
+            out.push(proxyBase + "/stream?url=" + encodeURIComponent(baseUrl + trimmed));
+          }
+        }
+        res.set("Content-Type", "application/vnd.apple.mpegurl");
+        res.send(out.join("\n"));
+      });
+    } else {
+      // Binary segment — pipe through
+      res.set("Content-Type", ct || "application/octet-stream");
+      if (upstreamRes.headers["content-length"]) {
+        res.set("Content-Length", upstreamRes.headers["content-length"]);
+      }
+      upstreamRes.pipe(res);
+    }
+  });
+  proxyReq.on("error", function(e) {
+    console.log("[stream] error: " + e.message);
+    res.status(502).json({ error: e.message });
+  });
+  proxyReq.on("timeout", function() { proxyReq.destroy(); });
+  proxyReq.end();
+});
+
 app.get("/embed", function(req, res) {
   var url = req.query.url;
   if (!url) return res.status(400).json({ error: "url required" });
@@ -238,6 +332,6 @@ app.get("/embed", function(req, res) {
 });
 
 var PORT = process.env.PORT || 3000;
-app.listen(PORT, function() { console.log("FaselHDX proxy v5.0.0 on port " + PORT); });
+app.listen(PORT, function() { console.log("FaselHDX proxy v5.2.0 on port " + PORT); });
 
 module.exports = app;
