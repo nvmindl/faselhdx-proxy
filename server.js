@@ -64,11 +64,8 @@ function getBrowser() {
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
       "--disable-gpu",
-      "--single-process",
       "--no-zygote",
       "--disable-extensions",
-      "--disable-background-networking",
-      "--window-size=480,360",
     ],
   }).then(function(b) {
     _browser = b;
@@ -107,26 +104,36 @@ function browsePage(url) {
       page = p;
       return page.setUserAgent(UA);
     }).then(function() {
-      return page.setViewport({ width: 480, height: 360 });
+      return page.setViewport({ width: 1280, height: 720 });
     }).then(function() {
-      return page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+      // Navigate and wait for network to settle (CF challenge does POST + redirect)
+      return page.goto(url, { waitUntil: "networkidle2", timeout: 45000 });
     }).then(function() {
-      // Wait for CF challenge to resolve: page title changes from "Just a moment..."
-      return page.waitForFunction(
-        'document.title !== "Just a moment..." && document.title !== ""',
-        { timeout: 25000 }
-      ).catch(function() {
-        console.log("[browse] CF challenge may not have resolved");
-      });
-    }).then(function() {
-      // Extra wait for page content to load
-      return new Promise(function(r) { setTimeout(r, 2000); });
+      // Check if we're still on CF challenge page
+      return page.title();
+    }).then(function(title) {
+      if (title === "Just a moment...") {
+        console.log("[browse] CF challenge detected, waiting for resolution...");
+        // Wait for title to change (CF challenge resolves via JS POST + redirect)
+        return page.waitForFunction(
+          'document.title !== "Just a moment..." && document.title !== ""',
+          { timeout: 30000 }
+        ).then(function() {
+          // Wait for the actual page to fully load after redirect
+          return page.waitForNavigation({ waitUntil: "networkidle2", timeout: 20000 }).catch(function() {});
+        }).then(function() {
+          return new Promise(function(r) { setTimeout(r, 3000); });
+        });
+      }
+      console.log("[browse] page loaded: " + title);
     }).then(function() {
       return page.content();
     }).then(function(html) {
-      page.close().catch(function() {});
-      console.log("[browse] got " + html.length + " chars");
-      return html;
+      return page.title().then(function(t) {
+        console.log("[browse] final title: " + t + " (" + html.length + " chars)");
+        page.close().catch(function() {});
+        return html;
+      });
     }).catch(function(e) {
       if (page) page.close().catch(function() {});
       throw e;
