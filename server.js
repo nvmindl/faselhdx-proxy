@@ -1,9 +1,5 @@
 var express = require("express");
 var https = require("https");
-var puppeteer = require("puppeteer-extra");
-var StealthPlugin = require("puppeteer-extra-plugin-stealth");
-
-puppeteer.use(StealthPlugin());
 
 var app = express();
 
@@ -43,105 +39,12 @@ var ALLOWED_HOSTS = [
   "vidtube.one", "www.vidtube.one", "vidtube.cam", "www.vidtube.cam",
   "app.videas.fr", "videas.fr", "cdn.videas.fr", "cdn2.videas.fr",
   "1vid.xyz", "www.1vid.xyz",
+  "lulustream.com", "www.lulustream.com",
+  "luluvdo.com", "www.luluvdo.com",
+  "luluvid.com", "www.luluvid.com",
 ];
 
 var UA = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36";
-
-// ── Puppeteer browser singleton for CF bypass ──
-var _browser = null;
-var _browserClosing = false;
-
-function getBrowser() {
-  if (_browser && _browser.isConnected()) return Promise.resolve(_browser);
-  if (_browserClosing) return new Promise(function(r) { setTimeout(function() { r(getBrowser()); }, 500); });
-  console.log("[browser] launching headless Chromium");
-  var chromePath = process.env.CHROMIUM_PATH || "/usr/bin/chromium";
-  return puppeteer.launch({
-    executablePath: chromePath,
-    headless: false,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      "--no-zygote",
-      "--disable-extensions",
-      "--disable-blink-features=AutomationControlled",
-      "--window-size=1280,720",
-    ],
-  }).then(function(b) {
-    _browser = b;
-    b.on("disconnected", function() { _browser = null; });
-    console.log("[browser] launched");
-    return b;
-  });
-}
-
-// Close idle browser after 2 minutes of no requests
-var _browserTimer = null;
-function touchBrowser() {
-  if (_browserTimer) clearTimeout(_browserTimer);
-  _browserTimer = setTimeout(function() {
-    if (_browser && _browser.isConnected()) {
-      console.log("[browser] closing idle browser");
-      _browserClosing = true;
-      _browser.close().catch(function() {}).then(function() {
-        _browser = null;
-        _browserClosing = false;
-      });
-    }
-  }, 120000);
-}
-
-// CF-protected domains that need Puppeteer
-var CF_DOMAINS = /fasel-hd\.cam|faselhdx\.best|faselhd\.cam|faselhd\.center/i;
-
-// Browse a CF-protected page using headless Chromium, return HTML after challenge
-function browsePage(url) {
-  console.log("[browse] " + url.substring(0, 100));
-  return getBrowser().then(function(browser) {
-    touchBrowser();
-    var page;
-    return browser.newPage().then(function(p) {
-      page = p;
-      return page.setUserAgent(UA);
-    }).then(function() {
-      return page.setViewport({ width: 1280, height: 720 });
-    }).then(function() {
-      // Navigate and wait for network to settle (CF challenge does POST + redirect)
-      return page.goto(url, { waitUntil: "networkidle2", timeout: 45000 });
-    }).then(function() {
-      // Check if we're still on CF challenge page
-      return page.title();
-    }).then(function(title) {
-      if (title === "Just a moment...") {
-        console.log("[browse] CF challenge detected, waiting for resolution...");
-        // Wait for title to change (CF challenge resolves via JS POST + redirect)
-        return page.waitForFunction(
-          'document.title !== "Just a moment..." && document.title !== ""',
-          { timeout: 30000 }
-        ).then(function() {
-          // Wait for the actual page to fully load after redirect
-          return page.waitForNavigation({ waitUntil: "networkidle2", timeout: 20000 }).catch(function() {});
-        }).then(function() {
-          return new Promise(function(r) { setTimeout(r, 3000); });
-        });
-      }
-      console.log("[browse] page loaded: " + title);
-    }).then(function() {
-      return page.content();
-    }).then(function(html) {
-      return page.title().then(function(t) {
-        console.log("[browse] final title: " + t + " (" + html.length + " chars)");
-        page.close().catch(function() {});
-        return html;
-      });
-    }).catch(function(e) {
-      if (page) page.close().catch(function() {});
-      throw e;
-    });
-  });
-}
 
 function httpsGet(hostname, path, extraHeaders, maxRedirects) {
   maxRedirects = maxRedirects || 5;
@@ -214,7 +117,7 @@ function apiRequest(endpoint) {
 }
 
 app.get("/", function(req, res) {
-  res.json({ status: "ok", version: "6.2.0", api: "EasyPlex", browser: !!_browser });
+  res.json({ status: "ok", version: "6.3.0", api: "EasyPlex" });
 });
 
 // Diagnostic: full chain test — embed → master m3u8 → variant m3u8 → first segment
@@ -505,24 +408,6 @@ function unpackPacker(html) {
   return p;
 }
 
-// Browse endpoint for testing CF bypass
-app.get("/browse", function(req, res) {
-  var url = req.query.url;
-  if (!url) return res.status(400).json({ error: "url required" });
-  try { new URL(url); } catch(e) { return res.status(400).json({ error: "invalid url" }); }
-  browsePage(url).then(function(html) {
-    // Return page title and found iframes/sources for debugging
-    var titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
-    var iframes = [];
-    var iframeRe = /<iframe[^>]+src\s*=\s*["']([^"']+)["'][^>]*>/gi;
-    var ifm;
-    while ((ifm = iframeRe.exec(html)) !== null) iframes.push(ifm[1]);
-    res.json({ title: titleMatch ? titleMatch[1] : "", htmlLength: html.length, iframes: iframes });
-  }).catch(function(e) {
-    res.status(502).json({ error: e.message });
-  });
-});
-
 app.get("/extract", function(req, res) {
   var url = req.query.url;
   if (!url) return res.status(400).json({ error: "url required" });
@@ -531,117 +416,6 @@ app.get("/extract", function(req, res) {
 
   var host = parsed.hostname.toLowerCase().replace(/^www\./, "");
 
-  // CF-protected domains: use Puppeteer to browse the page
-  if (CF_DOMAINS.test(host)) {
-    console.log("[extract] CF domain detected: " + host + ", using Puppeteer");
-    return browsePage(url).then(function(html) {
-      // Extract iframe src from the movie page
-      var iframes = [];
-      var iframeRe = /<iframe[^>]+src\s*=\s*["']([^"']+)["'][^>]*>/gi;
-      var ifm;
-      while ((ifm = iframeRe.exec(html)) !== null) {
-        var src = ifm[1];
-        if (/embed|player|watch|video/i.test(src) && /^https?:\/\//i.test(src)) {
-          iframes.push(src);
-        }
-      }
-
-      // Also look for data-src or data-url attributes with video URLs
-      var dataSrcRe = /data-(?:src|url|lazy-src)\s*=\s*["']([^"']+(?:embed|player|watch|video)[^"']*)["']/gi;
-      var dsm;
-      while ((dsm = dataSrcRe.exec(html)) !== null) {
-        if (/^https?:\/\//i.test(dsm[1])) iframes.push(dsm[1]);
-      }
-
-      // Also look for direct video URLs in the page
-      var sources = [];
-
-      // Try unpacking p.a.c.k.e.r. from the browsed page
-      var unpacked = unpackPacker(html);
-      var scanHtml = unpacked ? unpacked + "\n" + html : html;
-
-      // Look for JWPlayer sources in browsed page
-      var jwMatch = scanHtml.match(/sources\s*:\s*\[([^\]]+)\]/);
-      if (jwMatch) {
-        var srcBlock = jwMatch[1];
-        var fileRe = /\{[^}]*file\s*:\s*"([^"]+)"[^}]*(?:label\s*:\s*"([^"]*)"|)[^}]*\}/gi;
-        var fm;
-        while ((fm = fileRe.exec(srcBlock)) !== null) {
-          var type = /\.m3u8/i.test(fm[1]) ? "m3u8" : "mp4";
-          sources.push({ url: fm[1], quality: fm[2] || "auto", type: type });
-        }
-      }
-
-      // Fallback: scan for m3u8/mp4 URLs
-      if (!sources.length) {
-        var m3re = /https?:\/\/[^\s"'<>]+\.m3u8(?:\?[^\s"'<>]*)?/gi;
-        var m3m;
-        while ((m3m = m3re.exec(scanHtml)) !== null) {
-          sources.push({ url: m3m[0], quality: "auto", type: "m3u8" });
-        }
-        var mp4re = /https?:\/\/[^\s"'<>]+\.mp4(?:\?[^\s"'<>]*)?/gi;
-        var mp4m;
-        while ((mp4m = mp4re.exec(scanHtml)) !== null) {
-          var q = "auto";
-          if (/1080/.test(mp4m[0])) q = "1080p";
-          else if (/720/.test(mp4m[0])) q = "720p";
-          else if (/480/.test(mp4m[0])) q = "480p";
-          sources.push({ url: mp4m[0], quality: q, type: "mp4" });
-        }
-      }
-
-      console.log("[extract] CF page: " + iframes.length + " iframes, " + sources.length + " direct sources");
-
-      if (sources.length) {
-        var seen = {};
-        sources = sources.filter(function(s) { if (seen[s.url]) return false; seen[s.url] = true; return true; });
-        return res.json({ sources: sources });
-      }
-
-      // If we found iframes, recursively extract from the first working one
-      if (iframes.length) {
-        console.log("[extract] Following " + iframes.length + " iframes");
-        var idx = 0;
-        function tryNextIframe() {
-          if (idx >= iframes.length || idx >= 3) {
-            return res.json({ sources: [], iframes: iframes });
-          }
-          var iframeUrl = iframes[idx];
-          idx++;
-          console.log("[extract] Trying iframe: " + iframeUrl.substring(0, 80));
-          var ifParsed;
-          try { ifParsed = new URL(iframeUrl); } catch(e) { return tryNextIframe(); }
-
-          // If iframe is also CF-protected, use Puppeteer
-          if (CF_DOMAINS.test(ifParsed.hostname)) {
-            return browsePage(iframeUrl).then(function(ihtml) {
-              var isrc = extractSourcesFromHtml(ihtml);
-              if (isrc.length) return res.json({ sources: isrc });
-              return tryNextIframe();
-            }).catch(function() { return tryNextIframe(); });
-          }
-
-          // Regular HTTP fetch for iframe
-          httpsGet(ifParsed.hostname, ifParsed.pathname + ifParsed.search, {
-            Referer: ifParsed.origin + "/",
-          }, 5).then(function(result) {
-            if (result.status !== 200) return tryNextIframe();
-            var isrc = extractSourcesFromHtml(result.body);
-            if (isrc.length) return res.json({ sources: isrc });
-            return tryNextIframe();
-          }).catch(function() { return tryNextIframe(); });
-        }
-        return tryNextIframe();
-      }
-
-      res.json({ sources: [] });
-    }).catch(function(e) {
-      console.log("[extract] browse error: " + e.message);
-      res.status(502).json({ sources: [], error: e.message });
-    });
-  }
-
-  // Regular host: use HTTP extraction
   var allowed = false;
   for (var i = 0; i < ALLOWED_HOSTS.length; i++) {
     if (host === ALLOWED_HOSTS[i] || host === "www." + ALLOWED_HOSTS[i]) { allowed = true; break; }
@@ -650,7 +424,7 @@ app.get("/extract", function(req, res) {
 
   console.log("[extract] " + url.substring(0, 100));
 
-  // Follow redirects (aflam.news → mp4plus.org)
+  // Follow redirects (aflam.news → mp4plus.org, lulustream → luluvdo)
   httpsGet(parsed.hostname, parsed.pathname + parsed.search, {
     Referer: parsed.origin + "/",
   }, 5).then(function(result) {
@@ -746,6 +520,6 @@ app.get("/embed", function(req, res) {
 });
 
 var PORT = process.env.PORT || 3000;
-app.listen(PORT, function() { console.log("FaselHDX proxy v6.2.0 on port " + PORT); });
+app.listen(PORT, function() { console.log("FaselHDX proxy v6.3.0 on port " + PORT); });
 
 module.exports = app;
