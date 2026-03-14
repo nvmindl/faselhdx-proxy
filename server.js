@@ -58,7 +58,7 @@ function getBrowser() {
   var chromePath = process.env.CHROMIUM_PATH || "/usr/bin/chromium";
   return puppeteer.launch({
     executablePath: chromePath,
-    headless: "new",
+    headless: false,
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
@@ -66,6 +66,8 @@ function getBrowser() {
       "--disable-gpu",
       "--no-zygote",
       "--disable-extensions",
+      "--disable-blink-features=AutomationControlled",
+      "--window-size=1280,720",
     ],
   }).then(function(b) {
     _browser = b;
