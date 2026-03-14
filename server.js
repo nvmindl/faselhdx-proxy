@@ -19,7 +19,7 @@ var API_BASES = [
 ];
 
 var ALLOWED_HOSTS = [
-  "uqload.net", "uqload.cx", "uqload.com", "uqload.to",
+  "uqload.net", "uqload.cx", "uqload.com", "uqload.to", "uqload.io", "uqload.is",
   "vidspeed.org", "vidspeed.cc",
   "dood.watch", "dood.to", "dood.so", "dood.pm", "dood.wf",
   "streamtape.com", "streamtape.to",
@@ -36,7 +36,9 @@ var ALLOWED_HOSTS = [
   "mp4plus.org", "www.mp4plus.org",
   "anafast.org", "www.anafast.org",
   "reviewrate.net", "m.reviewrate.net",
-  "vidtube.one", "www.vidtube.one", "vidtube.cam", "www.vidtube.cam",
+  "vidtube.one", "www.vidtube.one", "vidtube.cam", "www.vidtube.cam", "vidtube.pro", "www.vidtube.pro",
+  "anafast.online", "www.anafast.online",
+  "vidspeeds.com", "www.vidspeeds.com",
   "app.videas.fr", "videas.fr", "cdn.videas.fr", "cdn2.videas.fr",
   "1vid.xyz", "www.1vid.xyz",
   "lulustream.com", "www.lulustream.com",
@@ -117,7 +119,7 @@ function apiRequest(endpoint) {
 }
 
 app.get("/", function(req, res) {
-  res.json({ status: "ok", version: "6.3.0", api: "EasyPlex" });
+  res.json({ status: "ok", version: "6.4.0", api: "EasyPlex" });
 });
 
 // Diagnostic: full chain test — embed → master m3u8 → variant m3u8 → first segment
@@ -520,6 +522,6 @@ app.get("/embed", function(req, res) {
 });
 
 var PORT = process.env.PORT || 3000;
-app.listen(PORT, function() { console.log("FaselHDX proxy v6.3.0 on port " + PORT); });
+app.listen(PORT, function() { console.log("FaselHDX proxy v6.4.0 on port " + PORT); });
 
 module.exports = app;
