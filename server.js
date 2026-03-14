@@ -123,7 +123,7 @@ function apiRequest(endpoint) {
 }
 
 app.get("/", function(req, res) {
-  res.json({ status: "ok", version: "6.4.1", api: "EasyPlex" });
+  res.json({ status: "ok", version: "6.5.0", api: "EasyPlex" });
 });
 
 // Diagnostic: full chain test — embed → master m3u8 → variant m3u8 → first segment
@@ -439,6 +439,15 @@ app.get("/extract", function(req, res) {
     }
     var sources = extractSourcesFromHtml(result.body);
     console.log("[extract] Found " + sources.length + " sources");
+
+    // Wrap m3u8 URLs through /stream proxy because HLS tokens are IP-locked
+    var proxyBase = "https://" + req.get("host");
+    for (var si = 0; si < sources.length; si++) {
+      if (sources[si].type === "m3u8") {
+        sources[si].url = proxyBase + "/stream?url=" + encodeURIComponent(sources[si].url);
+      }
+    }
+
     res.json({ sources: sources });
   }).catch(function(e) {
     console.log("[extract] error: " + e.message);
@@ -526,6 +535,6 @@ app.get("/embed", function(req, res) {
 });
 
 var PORT = process.env.PORT || 3000;
-app.listen(PORT, function() { console.log("FaselHDX proxy v6.4.1 on port " + PORT); });
+app.listen(PORT, function() { console.log("FaselHDX proxy v6.5.0 on port " + PORT); });
 
 module.exports = app;
