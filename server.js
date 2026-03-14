@@ -123,7 +123,7 @@ function apiRequest(endpoint) {
 }
 
 app.get("/", function(req, res) {
-  res.json({ status: "ok", version: "6.4.0", api: "EasyPlex" });
+  res.json({ status: "ok", version: "6.4.1", api: "EasyPlex" });
 });
 
 // Diagnostic: full chain test — embed → master m3u8 → variant m3u8 → first segment
@@ -526,6 +526,6 @@ app.get("/embed", function(req, res) {
 });
 
 var PORT = process.env.PORT || 3000;
-app.listen(PORT, function() { console.log("FaselHDX proxy v6.4.0 on port " + PORT); });
+app.listen(PORT, function() { console.log("FaselHDX proxy v6.4.1 on port " + PORT); });
 
 module.exports = app;
