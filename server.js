@@ -31,7 +31,7 @@ var ALLOWED_HOSTS = [
   "faselhd.center", "www.faselhd.center",
   "flech.tn",
   "egybestvid.com", "s1.egybestvid.com", "s2.egybestvid.com", "s3.egybestvid.com",
-  "vidoba.org", "www.vidoba.org",
+  "vidoba.org", "www.vidoba.org", "vidoba.site", "w.vidoba.site",
   "aflam.news", "v.aflam.news",
   "mp4plus.org", "www.mp4plus.org",
   "anafast.org", "www.anafast.org",
