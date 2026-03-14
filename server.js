@@ -28,13 +28,14 @@ var ALLOWED_HOSTS = [
   "mp4upload.com",
   "streamwish.fun", "streamwish.com", "streamwish.to",
   "filemoon.sx", "filemoon.to",
+  "filelions.com", "filelions.to",
   "earnvids.xyz",
-  "updown.icu",
+  "updown.icu", "gamescdn.online",
   "fasel-hd.cam", "www.fasel-hd.cam",
   "faselhd.cam", "www.faselhd.cam",
   "faselhd.center", "www.faselhd.center",
   "flech.tn",
-  "egybestvid.com", "s1.egybestvid.com", "s2.egybestvid.com", "s3.egybestvid.com",
+  "egybestvid.com",
   "vidoba.org", "www.vidoba.org", "vidoba.site", "w.vidoba.site",
   "aflam.news", "v.aflam.news",
   "mp4plus.org", "www.mp4plus.org",
@@ -48,9 +49,18 @@ var ALLOWED_HOSTS = [
   "lulustream.com", "www.lulustream.com",
   "luluvdo.com", "www.luluvdo.com",
   "luluvid.com", "www.luluvid.com",
+  "cdnz.quest", "premilkyway.com", "dramiyos-cdn.com",
 ];
 
 var UA = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36";
+
+function isHostAllowed(hostname) {
+  var host = hostname.toLowerCase().replace(/^www\./, "");
+  for (var i = 0; i < ALLOWED_HOSTS.length; i++) {
+    if (host === ALLOWED_HOSTS[i] || host.indexOf("." + ALLOWED_HOSTS[i]) === host.length - ALLOWED_HOSTS[i].length - 1) return true;
+  }
+  return false;
+}
 
 function httpsGet(hostname, path, extraHeaders, maxRedirects) {
   maxRedirects = maxRedirects || 5;
@@ -123,7 +133,7 @@ function apiRequest(endpoint) {
 }
 
 app.get("/", function(req, res) {
-  res.json({ status: "ok", version: "6.5.1", api: "EasyPlex" });
+  res.json({ status: "ok", version: "6.5.2", api: "EasyPlex" });
 });
 
 // Diagnostic: full chain test — embed → master m3u8 → variant m3u8 → first segment
@@ -301,17 +311,14 @@ app.get("/stream", function(req, res) {
   var parsed;
   try { parsed = new URL(url); } catch (e) { return res.status(400).json({ error: "invalid url" }); }
 
-  var host = parsed.hostname.toLowerCase().replace(/^www\./, "");
-  var allowed = false;
-  for (var i = 0; i < ALLOWED_HOSTS.length; i++) {
-    if (host === ALLOWED_HOSTS[i] || host === "www." + ALLOWED_HOSTS[i]) { allowed = true; break; }
-  }
-  if (!allowed) return res.status(403).json({ error: "host not allowed: " + host });
+  if (!isHostAllowed(parsed.hostname)) return res.status(403).json({ error: "host not allowed: " + parsed.hostname });
 
   var proxyBase = "https://" + req.get("host");
   var isM3u8 = /\.m3u8/i.test(parsed.pathname);
+  var ref = req.query.ref || "";
+  var referer = ref ? ref + "/" : parsed.origin + "/";
 
-  console.log("[stream] " + (isM3u8 ? "m3u8" : "seg") + " " + url.substring(0, 100));
+  console.log("[stream] " + (isM3u8 ? "m3u8" : "seg") + " ref=" + (ref || "none") + " " + url.substring(0, 80));
 
   var reqOpts = {
     hostname: parsed.hostname, port: 443,
@@ -321,7 +328,7 @@ app.get("/stream", function(req, res) {
       "User-Agent": UA,
       "Accept": "application/json, text/html, */*",
       "Accept-Language": "ar,en;q=0.8",
-      Referer: parsed.origin + "/",
+      Referer: referer,
     },
     timeout: 30000,
   };
@@ -332,7 +339,7 @@ app.get("/stream", function(req, res) {
       upstreamRes.resume();
       var newUrl = upstreamRes.headers.location;
       if (!/^https?:\/\//i.test(newUrl)) newUrl = "https://" + parsed.hostname + newUrl;
-      return res.redirect(307, proxyBase + "/stream?url=" + encodeURIComponent(newUrl));
+      return res.redirect(307, proxyBase + "/stream?url=" + encodeURIComponent(newUrl) + (ref ? "&ref=" + encodeURIComponent(ref) : ""));
     }
 
     if (upstreamRes.statusCode !== 200) {
@@ -356,18 +363,19 @@ app.get("/stream", function(req, res) {
           var trimmed = line.trim();
           if (!trimmed) { out.push(line); continue; }
           // Rewrite URI="" in #EXT tags (encryption keys, maps)
+          var refParam = ref ? "&ref=" + encodeURIComponent(ref) : "";
           if (trimmed.charAt(0) === "#") {
             out.push(trimmed.replace(/URI="([^"]+)"/gi, function(match, uri) {
               var absUri = /^https?:\/\//i.test(uri) ? uri : baseUrl + uri;
-              return 'URI="' + proxyBase + '/stream?url=' + encodeURIComponent(absUri) + '"';
+              return 'URI="' + proxyBase + '/stream?url=' + encodeURIComponent(absUri) + refParam + '"';
             }));
             continue;
           }
           // URL line (segment, variant playlist)
           if (/^https?:\/\//i.test(trimmed)) {
-            out.push(proxyBase + "/stream?url=" + encodeURIComponent(trimmed));
+            out.push(proxyBase + "/stream?url=" + encodeURIComponent(trimmed) + refParam);
           } else {
-            out.push(proxyBase + "/stream?url=" + encodeURIComponent(baseUrl + trimmed));
+            out.push(proxyBase + "/stream?url=" + encodeURIComponent(baseUrl + trimmed) + refParam);
           }
         }
         res.set("Content-Type", "application/vnd.apple.mpegurl");
@@ -421,13 +429,7 @@ app.get("/extract", function(req, res) {
   var parsed;
   try { parsed = new URL(url); } catch (e) { return res.status(400).json({ error: "invalid url" }); }
 
-  var host = parsed.hostname.toLowerCase().replace(/^www\./, "");
-
-  var allowed = false;
-  for (var i = 0; i < ALLOWED_HOSTS.length; i++) {
-    if (host === ALLOWED_HOSTS[i] || host === "www." + ALLOWED_HOSTS[i]) { allowed = true; break; }
-  }
-  if (!allowed) return res.status(403).json({ error: "host not allowed: " + host });
+  if (!isHostAllowed(parsed.hostname)) return res.status(403).json({ error: "host not allowed: " + parsed.hostname });
 
   console.log("[extract] " + url.substring(0, 100));
 
@@ -443,9 +445,10 @@ app.get("/extract", function(req, res) {
 
     // Wrap m3u8 URLs through /stream proxy because HLS tokens are IP-locked
     var proxyBase = "https://" + req.get("host");
+    var embedOrigin = parsed.origin;
     for (var si = 0; si < sources.length; si++) {
       if (sources[si].type === "m3u8") {
-        sources[si].url = proxyBase + "/stream?url=" + encodeURIComponent(sources[si].url);
+        sources[si].url = proxyBase + "/stream?url=" + encodeURIComponent(sources[si].url) + "&ref=" + encodeURIComponent(embedOrigin);
       }
     }
 
@@ -515,12 +518,7 @@ app.get("/embed", function(req, res) {
   var parsed;
   try { parsed = new URL(url); } catch (e) { return res.status(400).json({ error: "invalid url" }); }
 
-  var host = parsed.hostname.toLowerCase().replace(/^www\./, "");
-  var allowed = false;
-  for (var i = 0; i < ALLOWED_HOSTS.length; i++) {
-    if (host === ALLOWED_HOSTS[i] || host === "www." + ALLOWED_HOSTS[i]) { allowed = true; break; }
-  }
-  if (!allowed) return res.status(403).json({ error: "host not allowed: " + host });
+  if (!isHostAllowed(parsed.hostname)) return res.status(403).json({ error: "host not allowed: " + parsed.hostname });
 
   console.log("[embed] " + url.substring(0, 80));
   httpsGet(parsed.hostname, parsed.pathname + parsed.search, {
@@ -536,6 +534,6 @@ app.get("/embed", function(req, res) {
 });
 
 var PORT = process.env.PORT || 3000;
-app.listen(PORT, function() { console.log("FaselHDX proxy v6.5.1 on port " + PORT); });
+app.listen(PORT, function() { console.log("FaselHDX proxy v6.5.2 on port " + PORT); });
 
 module.exports = app;
