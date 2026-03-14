@@ -311,17 +311,18 @@ app.get("/stream", function(req, res) {
   var proxyBase = "https://" + req.get("host");
   var isM3u8 = /\.m3u8/i.test(parsed.pathname);
 
-  // Derive the base domain for Referer (strip CDN subdomains like s1., s2., etc.)
-  var refDomain = parsed.hostname.replace(/^(s\d+|cdn\d*|edge\d*|stream\d*)\./, "");
-  var refOrigin = "https://" + refDomain;
-
   console.log("[stream] " + (isM3u8 ? "m3u8" : "seg") + " " + url.substring(0, 100));
 
   var reqOpts = {
     hostname: parsed.hostname, port: 443,
     path: parsed.pathname + parsed.search,
     method: "GET",
-    headers: { "User-Agent": UA, "Accept": "*/*", Referer: refOrigin + "/", Origin: refOrigin },
+    headers: {
+      "User-Agent": UA,
+      "Accept": "application/json, text/html, */*",
+      "Accept-Language": "ar,en;q=0.8",
+      Referer: parsed.origin + "/",
+    },
     timeout: 30000,
   };
 
